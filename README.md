@@ -19,3 +19,6 @@ nn.BilinearSamplerBHWD()
 
 These modules should let one implement the Spatial Transformer Networks (Jaderberg et al.)
 http://arxiv.org/abs/1506.02025
+
+If this code is useful to your research, please cite this repository.
+
