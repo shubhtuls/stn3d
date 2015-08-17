@@ -11,3 +11,4 @@ qlua -ide demo_mnist.lua
 Images should appear after 5 epochs and show what the STN does on a test batch.
 You can edit demo_mnist.lua set use_stn = false to compare accuracy.
 
+You will need to work with the getParamsByDevice branch of the 'nn' package (required for nn.Optim).
