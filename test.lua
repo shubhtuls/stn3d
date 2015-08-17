@@ -119,6 +119,73 @@ function stntest.BilinearSamplerBHWD_single()
    mytester:assertlt(errGrids,precision, 'error on state ')
 end
 
+function stntest.AffineTransformMatrixGenerator_batch()
+   -- test all possible transformations
+   for _,useRotation in pairs{true,false} do
+      for _,useScale in pairs{true,false} do
+         for _,useTranslation in pairs{true,false} do
+            local currTest = ''
+            if useRotation then currTest = currTest..'rotation ' end
+            if useScale then currTest = currTest..'scale ' end
+            if useTranslation then currTest = currTest..'translation' end
+            if currTest=='' then currTest = 'full' end
+
+            local nbNeededParams = 0
+            if useRotation then nbNeededParams = nbNeededParams + 1 end
+            if useScale then nbNeededParams = nbNeededParams + 1 end
+            if useTranslation then nbNeededParams = nbNeededParams + 2 end
+            if nbNeededParams == 0 then nbNeededParams = 6 end -- full affine case
+
+            local nframes = torch.random(2,10)
+            local params = torch.zeros(nframes,nbNeededParams):uniform()
+            local module = nn.AffineTransformMatrixGenerator(useRotation,useScale,useTranslation)
+
+            local err = jac.testJacobian(module,params)
+            mytester:assertlt(err,precision, 'error on state for test '..currTest)
+
+            -- IO
+            local ferr,berr = jac.testIO(module,params)
+            mytester:asserteq(ferr, 0, torch.typename(module) .. ' - i/o forward err for test '..currTest)
+            mytester:asserteq(berr, 0, torch.typename(module) .. ' - i/o backward err for test '..currTest)
+
+         end
+      end
+   end
+end
+
+function stntest.AffineTransformMatrixGenerator_single()
+   -- test all possible transformations
+   for _,useRotation in pairs{true,false} do
+      for _,useScale in pairs{true,false} do
+         for _,useTranslation in pairs{true,false} do
+            local currTest = ''
+            if useRotation then currTest = currTest..'rotation ' end
+            if useScale then currTest = currTest..'scale ' end
+            if useTranslation then currTest = currTest..'translation' end
+            if currTest=='' then currTest = 'full' end
+
+            local nbNeededParams = 0
+            if useRotation then nbNeededParams = nbNeededParams + 1 end
+            if useScale then nbNeededParams = nbNeededParams + 1 end
+            if useTranslation then nbNeededParams = nbNeededParams + 2 end
+            if nbNeededParams == 0 then nbNeededParams = 6 end -- full affine case
+
+            local params = torch.zeros(nbNeededParams):uniform()
+            local module = nn.AffineTransformMatrixGenerator(useRotation,useScale,useTranslation)
+
+            local err = jac.testJacobian(module,params)
+            mytester:assertlt(err,precision, 'error on state for test '..currTest)
+
+            -- IO
+            local ferr,berr = jac.testIO(module,params)
+            mytester:asserteq(ferr, 0, torch.typename(module) .. ' - i/o forward err for test '..currTest)
+            mytester:asserteq(berr, 0, torch.typename(module) .. ' - i/o backward err for test '..currTest)
+
+         end
+      end
+   end
+end
+
 mytester:add(stntest)
 
 if not nn then
