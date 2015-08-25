@@ -34,8 +34,9 @@ function distortData32(foo)
       offsetx = torch.random(1, 1+rest)
       offsety = torch.random(1, 1+rest)
       
+      distImg:zero()
       distImg:narrow(2, offsety, sz):narrow(3,offsetx, sz):copy(s)
-      res:select(1,i):copy(image.scale(s,32,32))
+      res:select(1,i):copy(image.scale(distImg,32,32))
    end
    return res
 end
