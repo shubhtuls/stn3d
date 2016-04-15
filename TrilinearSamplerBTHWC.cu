@@ -161,7 +161,7 @@ static int cunn_TrilinearSamplerBTHWC_updateOutput(lua_State *L)
 template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputImages_data, int inputImages_strideBatch, int inputImages_strideChannels, int inputImages_strideTime, int inputImages_strideHeight, int inputImages_strideWidth,
                                          float* gradInputImages_data, int gradInputImages_strideBatch, int gradInputImages_strideChannels, int gradInputImages_strideTime, int gradInputImages_strideHeight, int gradInputImages_strideWidth,
                                          float* grids_data, int grids_strideBatch, int grids_strideZYX, int grids_strideTime, int grids_strideHeight, int grids_strideWidth,
-                                         float* gradGrids_data, int gradGrids_strideBatch, int gradGrids_strideYXZ, int gradGrids_strideTime, int gradGrids_strideHeight, int gradGrids_strideWidth,
+                                         float* gradGrids_data, int gradGrids_strideBatch, int gradGrids_strideZYX, int gradGrids_strideTime, int gradGrids_strideHeight, int gradGrids_strideWidth,
                                          float* gradOutput_data, int gradOutput_strideBatch, int gradOutput_strideChannels, int gradOutput_strideTime, int gradOutput_strideHeight, int gradOutput_strideWidth,
                                          int inputImages_channels, int inputImages_time, int inputImages_height, int inputImages_width)
 {
@@ -206,7 +206,7 @@ template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputIm
     const int in110Address = in010Address + inputImages_strideTime;
     const int in111Address = in011Address + inputImages_strideTime;
 
-    const int gradInputImages000Address = gradInputImages_strideBatch * b + gradInputImages_strideTime * tOut + gradInputImages_strideHeight * yInTopLeft + gradInputImages_strideWidth * xInTopLeft;
+    const int gradInputImages000Address = gradInputImages_strideBatch * b + gradInputImages_strideTime * tInTopLeft + gradInputImages_strideHeight * yInTopLeft + gradInputImages_strideWidth * xInTopLeft;
     const int gradInputImages001Address = gradInputImages000Address + gradInputImages_strideWidth;
     const int gradInputImages010Address = gradInputImages000Address + gradInputImages_strideHeight;
     const int gradInputImages011Address = gradInputImages010Address + gradInputImages_strideWidth;
@@ -241,7 +241,7 @@ template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputIm
          - we compute the dot product that we need for the grid gradient
     */
 
-    for(int t=threadIdx.x; t<inputImages_channels; t++)
+    for(int t=0; t<inputImages_channels; t++)
     {
         float gradOutValue = gradOutput_data[gradOutputAddress + t];
         // bool between(int value, int lowerBound, int upperBound)
