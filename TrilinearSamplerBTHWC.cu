@@ -35,7 +35,7 @@ __device__ void sumReduceShMem(volatile float s[])
 
 
 
-__global__ void bilinearSamplingFromGrid(float* inputImages_data, int inputImages_strideBatch, int inputImages_strideChannels, int inputImages_strideTime, int inputImages_strideHeight, int inputImages_strideWidth,
+__global__ void trilinearSamplingFromGrid(float* inputImages_data, int inputImages_strideBatch, int inputImages_strideChannels, int inputImages_strideTime, int inputImages_strideHeight, int inputImages_strideWidth,
                                          float* grids_data, int grids_strideBatch, int grids_strideZYX, int grids_strideTime, int grids_strideHeight, int grids_strideWidth,
                                          float* output_data, int output_strideBatch, int output_strideChannels, int output_strideTime, int output_strideHeight, int output_strideWidth,
                                          int inputImages_channels, int inputImages_time, int inputImages_height, int inputImages_width)
@@ -127,7 +127,7 @@ __global__ void bilinearSamplingFromGrid(float* inputImages_data, int inputImage
 }
 
 
-static int cunn_BilinearSamplerBHWD_updateOutput(lua_State *L)
+static int cunn_TrilinearSamplerBTHWC_updateOutput(lua_State *L)
 {
   THCState *state = getCutorchState(L);
   THCudaTensor *inputImages = (THCudaTensor *)luaT_checkudata(L, 2, "torch.CudaTensor");
@@ -173,109 +173,149 @@ static int cunn_BilinearSamplerBHWD_updateOutput(lua_State *L)
 }
 
 
-template<bool onlyGrid> __global__ void backwardBilinearSampling(float* inputImages_data, int inputImages_strideBatch, int inputImages_strideChannels, int inputImages_strideHeight, int inputImages_strideWidth,
-                                         float* gradInputImages_data, int gradInputImages_strideBatch, int gradInputImages_strideChannels, int gradInputImages_strideHeight, int gradInputImages_strideWidth,
-                                         float* grids_data, int grids_strideBatch, int grids_strideYX, int grids_strideHeight, int grids_strideWidth,
-                                         float* gradGrids_data, int gradGrids_strideBatch, int gradGrids_strideYX, int gradGrids_strideHeight, int gradGrids_strideWidth,
-                                         float* gradOutput_data, int gradOutput_strideBatch, int gradOutput_strideChannels, int gradOutput_strideHeight, int gradOutput_strideWidth,
-                                         int inputImages_channels, int inputImages_height, int inputImages_width, int gradOutput_width)
+template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputImages_data, int inputImages_strideBatch, int inputImages_strideChannels, int inputImages_strideTime, int inputImages_strideHeight, int inputImages_strideWidth,
+                                         float* gradInputImages_data, int gradInputImages_strideBatch, int gradInputImages_strideChannels, int gradInputImages_strideTime, int gradInputImages_strideHeight, int gradInputImages_strideWidth,
+                                         float* grids_data, int grids_strideBatch, int grids_strideZYX, int grids_strideTime, int grids_strideHeight, int grids_strideWidth,
+                                         float* gradGrids_data, int gradGrids_strideBatch, int gradGrids_strideYXZ, int gradGrids_strideTime, int gradGrids_strideHeight, int gradGrids_strideWidth,
+                                         float* gradOutput_data, int gradOutput_strideBatch, int gradOutput_strideChannels, int gradOutput_strideTime, int gradOutput_strideHeight, int gradOutput_strideWidth,
+                                         int inputImages_channels, int inputImages_time, int inputImages_height, int inputImages_width, int gradOutput_width)
 {
    // each (32,16) block 16 output pixels (for coalescing the grid read)
    // x,y = coordinates
    // z = batch index
    // threads : used for features
       
-   const int xOut = blockIdx.x*blockDim.y+threadIdx.y;
-   const bool withinImageBounds = xOut < gradOutput_width;
-   const bool withinGridBounds = blockIdx.x*blockDim.y + threadIdx.x / 2 < gradOutput_width;
+    const int xOut = blockIdx.x;
+    const int yOut = blockIdx.y;
+    const int tOut = threadIdx.x;
+    const int b = blockIdx.z;
 
-   const int yOut = blockIdx.y;
-   const int width = inputImages_width;
-   const int height = inputImages_height;
+    const int width = inputImages_width;
+    const int height = inputImages_height;
+    cont int time = inputImages_time;
+
+    float yf,xf,tf;
+
+    float gridData[3];
+    for (int coord = 0; coord <3; coord++)gridData[coord] = grids_data[b*grids_strideBatch + tOut*grids_strideTime + yOut*grids_strideHeight + xOut*grids_strideWidth + coord];
+
+    tf = gridData[0];
+    yf = gridData[1];
+    xf = gridData[2];
    
-   const int b = blockIdx.z;
-   
-   float yf,xf;
+    int tInTopLeft, yInTopLeft, xInTopLeft;
+    float tWeightTopLeft, yWeightTopLeft, xWeightTopLeft;
+    getTopLeft(xf, inputImages_width, xInTopLeft, xWeightTopLeft);
+    getTopLeft(yf, inputImages_height, yInTopLeft, yWeightTopLeft);
+    getTopLeft(tf, inputImages_time, tInTopLeft, tWeightTopLeft);
 
-   __shared__ float gridData[32];
-   if (threadIdx.y==0 && withinGridBounds)
-   {
-      gridData[threadIdx.x] = grids_data[b*grids_strideBatch + yOut*grids_strideHeight + xOut*grids_strideWidth + threadIdx.x];
-   }
-   __syncthreads();
+    const int outAddress = output_strideBatch * b + output_strideTime * tOut + output_strideHeight * yOut + output_strideWidth * xOut;
+    const int gradOutputAddress = gradOutput_strideBatch * b + gradOutput_strideTime * tOut + gradOutput_strideHeight * yOut + gradOutput_strideWidth * xOut;
 
-   if(withinImageBounds)
-   {
-      yf = gridData[threadIdx.y*2];
-      xf = gridData[threadIdx.y*2+1];
-      
+    const int in000Address = inputImages_strideBatch * b + inputImages_strideTime * tInTopLeft + inputImages_strideHeight * yInTopLeft + inputImages_strideWidth * xInTopLeft;
+    const int in001Address = in000Address + inputImages_strideWidth;
+    const int in010Address = in000Address + inputImages_strideHeight;
+    const int in011Address = in010Address + inputImages_strideWidth;
 
-      
-      int yInTopLeft, xInTopLeft;
-      float yWeightTopLeft, xWeightTopLeft;
-      getTopLeft(xf, inputImages_width, xInTopLeft, xWeightTopLeft);
-      getTopLeft(yf, inputImages_height, yInTopLeft, yWeightTopLeft);
-      
-      const int inTopLeftAddress = inputImages_strideBatch * b + inputImages_strideHeight * yInTopLeft + inputImages_strideWidth * xInTopLeft;
-      const int inTopRightAddress = inTopLeftAddress + inputImages_strideWidth;
-      const int inBottomLeftAddress = inTopLeftAddress + inputImages_strideHeight;
-      const int inBottomRightAddress = inBottomLeftAddress + inputImages_strideWidth;
+    const int in100Address = in000Address + inputImages_strideTime;
+    const int in101Address = in001Address + inputImages_strideTime;
+    const int in110Address = in010Address + inputImages_strideTime;
+    const int in111Address = in011Address + inputImages_strideTime;
 
-      const int gradInputImagesTopLeftAddress = gradInputImages_strideBatch * b + gradInputImages_strideHeight * yInTopLeft + gradInputImages_strideWidth * xInTopLeft;
-      const int gradInputImagesTopRightAddress = gradInputImagesTopLeftAddress + gradInputImages_strideWidth;
-      const int gradInputImagesBottomLeftAddress = gradInputImagesTopLeftAddress + gradInputImages_strideHeight;
-      const int gradInputImagesBottomRightAddress = gradInputImagesBottomLeftAddress + gradInputImages_strideWidth;
+    const int gradInputImages000Address = gradInputImages_strideBatch * b + gradInputImages_strideTime * tOut + gradInputImages_strideHeight * yInTopLeft + gradInputImages_strideWidth * xInTopLeft;
+    const int gradInputImages001Address = gradInputImages000Address + gradInputImages_strideWidth;
+    const int gradInputImages010Address = gradInputImages000Address + gradInputImages_strideHeight;
+    const int gradInputImages011Address = gradInputImages010Address + gradInputImages_strideWidth;
+    
+    const int gradInputImages100Address = gradInputImages000Address + gradInputImages_strideTime;
+    const int gradInputImages101Address = gradInputImages001Address + gradInputImages_strideTime;
+    const int gradInputImages110Address = gradInputImages010Address + gradInputImages_strideTime;
+    const int gradInputImages111Address = gradInputImages011Address + gradInputImages_strideTime;
 
-      const int gradOutputAddress = gradOutput_strideBatch * b + gradOutput_strideHeight * yOut + gradOutput_strideWidth * xOut;
 
-      float topLeftDotProduct = 0;
-      float topRightDotProduct = 0;
-      float bottomLeftDotProduct = 0;
-      float bottomRightDotProduct = 0;
+    float dotProduct000 = 0;
+    float dotProduct001 = 0;
+    float dotProduct010 = 0;
+    float dotProduct011 = 0;
+    float dotProduct100 = 0;
+    float dotProduct101 = 0;
+    float dotProduct110 = 0;
+    float dotProduct111 = 0;
 
-      bool topLeftIsIn = between(xInTopLeft, 0, width-1) && between(yInTopLeft, 0, height-1);
-      bool topRightIsIn = between(xInTopLeft+1, 0, width-1) && between(yInTopLeft, 0, height-1);
-      bool bottomLeftIsIn = between(xInTopLeft, 0, width-1) && between(yInTopLeft+1, 0, height-1);
-      bool bottomRightIsIn = between(xInTopLeft+1, 0, width-1) && between(yInTopLeft+1, 0, height-1);
+    bool IsIn000 = between(tInTopLeft, 0, time-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft, 0, width-1);
+    bool IsIn001 = between(tInTopLeft, 0, time-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft+1, 0, width-1);
+    bool IsIn010 = between(tInTopLeft, 0, time-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft, 0, width-1);
+    bool IsIn011 = between(tInTopLeft, 0, time-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft+1, 0, width-1);
+    bool IsIn100 = between(tInTopLeft+1, 0, time-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft, 0, width-1);
+    bool IsIn101 = between(tInTopLeft+1, 0, time-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft+1, 0, width-1);
+    bool IsIn110 = between(tInTopLeft+1, 0, time-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft, 0, width-1);
+    bool IsIn111 = between(tInTopLeft+1, 0, time-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft+1, 0, width-1);
 
-      /*
+    /*
          In that loop we accumulate
          - gradients into the gradInputImages array with atomic adds
          - we compute the dot product that we need for the grid gradient
       */
 
-      for(int t=threadIdx.x; t<inputImages_channels; t+= blockDim.x)
-      {
-         float gradOutValue = gradOutput_data[gradOutputAddress + t];
-         // bool between(int value, int lowerBound, int upperBound)
-         if(topLeftIsIn)
-         {
-            float inTopLeft = inputImages_data[inTopLeftAddress + t];
-            topLeftDotProduct += inTopLeft * gradOutValue;
-            if(!onlyGrid) atomicAdd(&gradInputImages_data[gradInputImagesTopLeftAddress + t], xWeightTopLeft * yWeightTopLeft * gradOutValue);
-         }
+    for(int t=threadIdx.x; t<inputImages_channels; t++)
+    {
+        float gradOutValue = gradOutput_data[gradOutputAddress + t];
+        // bool between(int value, int lowerBound, int upperBound)
+        if(IsIn000)
+        {
+            float in000 = inputImages_data[in000Address + t];
+            dotProduct000 += in000 * gradOutValue;
+            if(!onlyGrid) atomicAdd(&gradInputImages_data[gradInputImages000Address + t], tWeightTopLeft * yWeightTopLeft * xWeightTopLeft * gradOutValue);
+        }
 
-         if(topRightIsIn)
-         {
-            float inTopRight = inputImages_data[inTopRightAddress + t];
-            topRightDotProduct += inTopRight * gradOutValue;
-            if(!onlyGrid) atomicAdd(&gradInputImages_data[gradInputImagesTopRightAddress + t], (1 - xWeightTopLeft) * yWeightTopLeft * gradOutValue);
-         }
+        if(IsIn001)
+        {
+            float in001 = inputImages_data[in001Address + t];
+            dotProduct001 += in001 * gradOutValue;
+            if(!onlyGrid) atomicAdd(&gradInputImages_data[gradInputImages001Address + t], tWeightTopLeft * yWeightTopLeft * (1-xWeightTopLeft) * gradOutValue);
+        }
 
-         if(bottomLeftIsIn)
-         {
-            float inBottomLeft = inputImages_data[inBottomLeftAddress + t];
-            bottomLeftDotProduct += inBottomLeft * gradOutValue;
-            if(!onlyGrid) atomicAdd(&gradInputImages_data[gradInputImagesBottomLeftAddress + t], xWeightTopLeft * (1 - yWeightTopLeft) * gradOutValue);
-         }
+        if(IsIn010)
+        {
+            float in010 = inputImages_data[in010Address + t];
+            dotProduct010 += in010 * gradOutValue;
+            if(!onlyGrid) atomicAdd(&gradInputImages_data[gradInputImages010Address + t], tWeightTopLeft * (1-yWeightTopLeft) * xWeightTopLeft * gradOutValue);
+        }
 
-         if(bottomRightIsIn)
-         {
-            float inBottomRight = inputImages_data[inBottomRightAddress + t];
-            bottomRightDotProduct += inBottomRight * gradOutValue;
-            if(!onlyGrid) atomicAdd(&gradInputImages_data[gradInputImagesBottomRightAddress + t], (1 - xWeightTopLeft) * (1 - yWeightTopLeft) * gradOutValue);
-         }
-      }
+        if(IsIn011)
+        {
+            float in011 = inputImages_data[in011Address + t];
+            dotProduct011 += in011 * gradOutValue;
+            if(!onlyGrid) atomicAdd(&gradInputImages_data[gradInputImages011Address + t], tWeightTopLeft * (1-yWeightTopLeft) * (1-xWeightTopLeft) * gradOutValue);
+        }
+        
+        if(IsIn100)
+        {
+            float in100 = inputImages_data[in100Address + t];
+            dotProduct100 += in100 * gradOutValue;
+            if(!onlyGrid) atomicAdd(&gradInputImages_data[gradInputImages100Address + t], (1-tWeightTopLeft) * yWeightTopLeft * xWeightTopLeft * gradOutValue);
+        }
+
+        if(IsIn101)
+        {
+            float in101 = inputImages_data[in101Address + t];
+            dotProduct101 += in101 * gradOutValue;
+            if(!onlyGrid) atomicAdd(&gradInputImages_data[gradInputImages101Address + t], (1-tWeightTopLeft) * yWeightTopLeft * (1-xWeightTopLeft) * gradOutValue);
+        }
+
+        if(IsIn110)
+        {
+            float in110 = inputImages_data[in110Address + t];
+            dotProduct110 += in110 * gradOutValue;
+            if(!onlyGrid) atomicAdd(&gradInputImages_data[gradInputImages110Address + t], (1-tWeightTopLeft) * (1-yWeightTopLeft) * xWeightTopLeft * gradOutValue);
+        }
+
+        if(IsIn111)
+        {
+            float in111 = inputImages_data[in111Address + t];
+            dotProduct111 += in111 * gradOutValue;
+            if(!onlyGrid) atomicAdd(&gradInputImages_data[gradInputImages111Address + t], (1-tWeightTopLeft) * (1-yWeightTopLeft) * (1-xWeightTopLeft) * gradOutValue);
+        }
 
       /*
          Here we reduce the dot product and compute the grid gradient before writing it.
