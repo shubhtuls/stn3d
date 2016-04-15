@@ -38,9 +38,9 @@ __global__ void trilinearSamplingFromGrid(float* inputImages_data, int inputImag
    
    const int width = inputImages_width;
    const int height = inputImages_height;
-   cosnt int frames = inputImages_time;
+   const int frames = inputImages_time;
    
-   float yf,xf;
+   float yf,xf,tf;
 
    float gridData[3];
    for (int coord = 0; coord <3; coord++)gridData[coord] = grids_data[b*grids_strideBatch + tOut*grids_strideTime + yOut*grids_strideHeight + xOut*grids_strideWidth + coord];
@@ -163,7 +163,7 @@ template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputIm
                                          float* grids_data, int grids_strideBatch, int grids_strideZYX, int grids_strideTime, int grids_strideHeight, int grids_strideWidth,
                                          float* gradGrids_data, int gradGrids_strideBatch, int gradGrids_strideYXZ, int gradGrids_strideTime, int gradGrids_strideHeight, int gradGrids_strideWidth,
                                          float* gradOutput_data, int gradOutput_strideBatch, int gradOutput_strideChannels, int gradOutput_strideTime, int gradOutput_strideHeight, int gradOutput_strideWidth,
-                                         int inputImages_channels, int inputImages_time, int inputImages_height, int inputImages_width, int gradOutput_width)
+                                         int inputImages_channels, int inputImages_time, int inputImages_height, int inputImages_width)
 {
     // each (32,16) block 16 output pixels (for coalescing the grid read)
     // x,y = coordinates
@@ -194,7 +194,6 @@ template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputIm
     getTopLeft(yf, inputImages_height, yInTopLeft, yWeightTopLeft);
     getTopLeft(tf, inputImages_time, tInTopLeft, tWeightTopLeft);
 
-    const int outAddress = output_strideBatch * b + output_strideTime * tOut + output_strideHeight * yOut + output_strideWidth * xOut;
     const int gradOutputAddress = gradOutput_strideBatch * b + gradOutput_strideTime * tOut + gradOutput_strideHeight * yOut + gradOutput_strideWidth * xOut;
 
     const int in000Address = inputImages_strideBatch * b + inputImages_strideTime * tInTopLeft + inputImages_strideHeight * yInTopLeft + inputImages_strideWidth * xInTopLeft;
@@ -303,7 +302,7 @@ template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputIm
         }
     }
     
-    xf = - tWeightTopLeft * yWeightTopLeft * dotProduct000
+    float xg = - tWeightTopLeft * yWeightTopLeft * dotProduct000
         + tWeightTopLeft * yWeightTopLeft * dotProduct001
         - tWeightTopLeft * (1 - yWeightTopLeft) * dotProduct010
         + tWeightTopLeft * (1 - yWeightTopLeft) * dotProduct011
@@ -312,7 +311,7 @@ template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputIm
         - (1-tWeightTopLeft) * (1 - yWeightTopLeft) * dotProduct110
         + (1-tWeightTopLeft) * (1 - yWeightTopLeft) * dotProduct111;
     
-    yf = - tWeightTopLeft * xWeightTopLeft * dotProduct000
+    float yg = - tWeightTopLeft * xWeightTopLeft * dotProduct000
         - tWeightTopLeft * (1 - xWeightTopLeft) * dotProduct001
         + tWeightTopLeft * xWeightTopLeft * dotProduct010
         + tWeightTopLeft * (1 - xWeightTopLeft) * dotProduct011
@@ -321,7 +320,7 @@ template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputIm
         + (1-tWeightTopLeft) * xWeightTopLeft * dotProduct110
         + (1-tWeightTopLeft) * (1 - xWeightTopLeft) * dotProduct111;
     
-    zf = - yWeightTopLeft * xWeightTopLeft * dotProduct000
+    float zg = - yWeightTopLeft * xWeightTopLeft * dotProduct000
         - yWeightTopLeft * (1 - xWeightTopLeft) * dotProduct001
         - (1 - yWeightTopLeft) * xWeightTopLeft * dotProduct010
         - (1 - yWeightTopLeft) * (1 - xWeightTopLeft) * dotProduct011
@@ -331,11 +330,11 @@ template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputIm
         + (1 - yWeightTopLeft) * (1 - xWeightTopLeft) * dotProduct111;
     
     float gridGrads[3];
-    gridGrads[0] = zf * (inputImages_time-1) / 2;
-    gridGrads[1] = yf * (inputImages_height-1) / 2;
-    gridGrads[2] = xf * (inputImages_width-1) / 2;
-    
-    for(int dim=0;dim<3;dim++) {gradGrids_data[b*gradGrids_strideBatch + tOut*gradGrids_strideTime + yOut*gradGrids_strideHeight + xOut*gradGrids_strideWidth + d] = gridGrads[d];
+    gridGrads[0] = zg * (inputImages_time-1) / 2;
+    gridGrads[1] = yg * (inputImages_height-1) / 2;
+    gridGrads[2] = xg * (inputImages_width-1) / 2;
+    int coord;
+    for(coord=0;coord<3;coord++) {gradGrids_data[b*gradGrids_strideBatch + tOut*gradGrids_strideTime + yOut*gradGrids_strideHeight + xOut*gradGrids_strideWidth + coord] = gridGrads[coord];
     }
 }
 
@@ -348,8 +347,8 @@ static int cunn_TrilinearSamplerBTHWC_updateGradInput(lua_State *L)
     THCudaTensor *gradGrids = (THCudaTensor *)luaT_checkudata(L, 5, "torch.CudaTensor");
     THCudaTensor *gradOutput = (THCudaTensor *)luaT_checkudata(L, 6, "torch.CudaTensor");
 
-    dim3 blocks(output->size[3], output->size[2], output->size[0]); // Width X Height X BatchSize
-    dim3 threads(output->size[1]); // nTime - each thread will handle all input_channels together
+    dim3 blocks(gradOutput->size[3], gradOutput->size[2], gradOutput->size[0]); // Width X Height X BatchSize
+    dim3 threads(gradOutput->size[1]); // nTime - each thread will handle all input_channels together
 
     backwardTrilinearSampling <false> <<< blocks, threads, 0, THCState_getCurrentStream(state) >>> (
                                                       THCudaTensor_data(state, inputImages), 
@@ -407,8 +406,8 @@ static int cunn_TrilinearSamplerBTHWC_updateGradInputOnlyGrid(lua_State *L)
     THCudaTensor *gradGrids = (THCudaTensor *)luaT_checkudata(L, 5, "torch.CudaTensor");
     THCudaTensor *gradOutput = (THCudaTensor *)luaT_checkudata(L, 6, "torch.CudaTensor");
 
-    dim3 blocks(output->size[3], output->size[2], output->size[0]); // Width X Height X BatchSize
-    dim3 threads(output->size[1]); // nTime - each thread will handle all input_channels together
+    dim3 blocks(gradOutput->size[3], gradOutput->size[2], gradOutput->size[0]); // Width X Height X BatchSize
+    dim3 threads(gradOutput->size[1]); // nTime - each thread will handle all input_channels together
 
     backwardTrilinearSampling <true> <<< blocks, threads, 0, THCState_getCurrentStream(state) >>> (
                                                       THCudaTensor_data(state, inputImages), 

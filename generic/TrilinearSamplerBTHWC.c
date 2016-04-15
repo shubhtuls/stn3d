@@ -1,13 +1,13 @@
-#ifndef TH3d_GENERIC_FILE
-#define TH3d_GENERIC_FILE "generic/TrilinearSamplerBTHWC.c"
+#ifndef TH_GENERIC_FILE
+#define TH_GENERIC_FILE "generic/TrilinearSamplerBTHWC.c"
 #else
 
 #include <stdbool.h>
-
-bool between(int value, int lowerBound, int upperBound)
-{
-   return (value >= lowerBound && value <= upperBound);
-}
+#define between(value,lowerBound,upperBound) ((value>=lowerBound&&value<=upperBound))
+//bool between(int value, int lowerBound, int upperBound)
+//{
+//   return (value >= lowerBound && value <= upperBound);
+//}
 
 static int nn_(TrilinearSamplerBTHWC_updateOutput)(lua_State *L)
 {
@@ -152,9 +152,9 @@ static int nn_(TrilinearSamplerBTHWC_updateGradInput)(lua_State *L)
   int inputImages_time = inputImages->size[1];
   int inputImages_height = inputImages->size[2];
   int inputImages_width = inputImages->size[3];
-  int output_time = output->size[1];
-  int output_height = output->size[2];
-  int output_width = output->size[3];
+  int output_time = gradOutput->size[1];
+  int output_height = gradOutput->size[2];
+  int output_width = gradOutput->size[3];
   int inputImages_channels = inputImages->size[4];
 
   int gradOutput_strideBatch = gradOutput->stride[0];
@@ -193,11 +193,11 @@ static int nn_(TrilinearSamplerBTHWC_updateGradInput)(lua_State *L)
 
   for(b=0; b < batchsize; b++)
   {
-    for(tOut=0; tOut < gradOutput_time; tOut++)
+    for(tOut=0; tOut < output_time; tOut++)
     {
-        for(yOut=0; yOut < gradOutput_height; yOut++)
+        for(yOut=0; yOut < output_height; yOut++)
         {
-          for(xOut=0; xOut < gradOutput_width; xOut++)
+          for(xOut=0; xOut < output_width; xOut++)
           {
             //read the grid
             real tf = grids_data[b*grids_strideBatch + tOut*grids_strideTime + yOut*grids_strideHeight + xOut*grids_strideWidth+0];
@@ -321,18 +321,18 @@ static int nn_(TrilinearSamplerBTHWC_updateGradInput)(lua_State *L)
                 {
                     real in110 = inputImages_data[in110Address + t];
                     dotProduct110 += in110 * gradOutValue;
-                    if(!onlyGrid) gradInputImages_data[gradInputImages110Address + t] += (1-tWeightTopLeft) * (1-yWeightTopLeft) * xWeightTopLeft * gradOutValue);
+                    if(!onlyGrid) gradInputImages_data[gradInputImages110Address + t] += (1-tWeightTopLeft) * (1-yWeightTopLeft) * xWeightTopLeft * gradOutValue;
                 }
 
                 if(IsIn111)
                 {
                     real in111 = inputImages_data[in111Address + t];
                     dotProduct111 += in111 * gradOutValue;
-                    if(!onlyGrid) gradInputImages_data[gradInputImages111Address + t] += (1-tWeightTopLeft) * (1-yWeightTopLeft) * (1-xWeightTopLeft) * gradOutValue);
+                    if(!onlyGrid) gradInputImages_data[gradInputImages111Address + t] += (1-tWeightTopLeft) * (1-yWeightTopLeft) * (1-xWeightTopLeft) * gradOutValue;
                 }
             }
 
-            xf = - tWeightTopLeft * yWeightTopLeft * dotProduct000
+            real xg = - tWeightTopLeft * yWeightTopLeft * dotProduct000
                 + tWeightTopLeft * yWeightTopLeft * dotProduct001
                 - tWeightTopLeft * (1 - yWeightTopLeft) * dotProduct010
                 + tWeightTopLeft * (1 - yWeightTopLeft) * dotProduct011
@@ -341,7 +341,7 @@ static int nn_(TrilinearSamplerBTHWC_updateGradInput)(lua_State *L)
                 - (1-tWeightTopLeft) * (1 - yWeightTopLeft) * dotProduct110
                 + (1-tWeightTopLeft) * (1 - yWeightTopLeft) * dotProduct111;
 
-            yf = - tWeightTopLeft * xWeightTopLeft * dotProduct000
+            real yg = - tWeightTopLeft * xWeightTopLeft * dotProduct000
                 - tWeightTopLeft * (1 - xWeightTopLeft) * dotProduct001
                 + tWeightTopLeft * xWeightTopLeft * dotProduct010
                 + tWeightTopLeft * (1 - xWeightTopLeft) * dotProduct011
@@ -350,7 +350,7 @@ static int nn_(TrilinearSamplerBTHWC_updateGradInput)(lua_State *L)
                 + (1-tWeightTopLeft) * xWeightTopLeft * dotProduct110
                 + (1-tWeightTopLeft) * (1 - xWeightTopLeft) * dotProduct111;
 
-            zf = - yWeightTopLeft * xWeightTopLeft * dotProduct000
+            real zg = - yWeightTopLeft * xWeightTopLeft * dotProduct000
                 - yWeightTopLeft * (1 - xWeightTopLeft) * dotProduct001
                 - (1 - yWeightTopLeft) * xWeightTopLeft * dotProduct010
                 - (1 - yWeightTopLeft) * (1 - xWeightTopLeft) * dotProduct011
@@ -360,11 +360,11 @@ static int nn_(TrilinearSamplerBTHWC_updateGradInput)(lua_State *L)
                 + (1 - yWeightTopLeft) * (1 - xWeightTopLeft) * dotProduct111;
 
             real gridGrads[3];
-            gridGrads[0] = zf * (inputImages_time-1) / 2;
-            gridGrads[1] = yf * (inputImages_height-1) / 2;
-            gridGrads[2] = xf * (inputImages_width-1) / 2;
-
-            for(int coord=0;coord<3;dim++) {gradGrids_data[b*gradGrids_strideBatch + tOut*gradGrids_strideTime + yOut*gradGrids_strideHeight + xOut*gradGrids_strideWidth + d] = gridGrads[coord];
+            gridGrads[0] = zg * (inputImages_time-1) / 2;
+            gridGrads[1] = yg * (inputImages_height-1) / 2;
+            gridGrads[2] = xg * (inputImages_width-1) / 2;
+            int coord;
+            for(coord=0;coord<3;coord++) {gradGrids_data[b*gradGrids_strideBatch + tOut*gradGrids_strideTime + yOut*gradGrids_strideHeight + xOut*gradGrids_strideWidth + coord] = gridGrads[coord];
             }
 
           }
