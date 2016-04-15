@@ -135,29 +135,32 @@ static int cunn_BilinearSamplerBHWD_updateOutput(lua_State *L)
   THCudaTensor *output = (THCudaTensor *)luaT_getfieldcheckudata(L, 1, "output", "torch.CudaTensor");
 
 
-   dim3 blocks((output->size[2]+15)/16, output->size[1], output->size[0]);
-   dim3 threads(32,16);
+   dim3 blocks(output->size[3], output->size[2], output->size[0]); // Width X Height X BatchSize
+   dim3 threads(output->size[4],output->size[1]); // nChannels X nTime
 
    /* assume BHWD */
    bilinearSamplingFromGrid <<< blocks, threads, 0, THCState_getCurrentStream(state) >>> (THCudaTensor_data(state, inputImages), 
                                                       THCudaTensor_stride(state, inputImages, 0), 
-                                                      THCudaTensor_stride(state, inputImages, 3), 
+                                                      THCudaTensor_stride(state, inputImages, 4), 
                                                       THCudaTensor_stride(state, inputImages, 1), 
-                                                      THCudaTensor_stride(state, inputImages, 2),
+                                                      THCudaTensor_stride(state, inputImages, 2), 
+                                                      THCudaTensor_stride(state, inputImages, 3),
                                                       THCudaTensor_data(state, grids),  
                                                       THCudaTensor_stride(state, grids, 0), 
+                                                      THCudaTensor_stride(state, grids, 4),
+                                                      THCudaTensor_stride(state, grids, 1),
+                                                      THCudaTensor_stride(state, grids, 2), 
                                                       THCudaTensor_stride(state, grids, 3),
-                                                      THCudaTensor_stride(state, grids, 1), 
-                                                      THCudaTensor_stride(state, grids, 2),
                                                       THCudaTensor_data(state, output),  
                                                       THCudaTensor_stride(state, output, 0), 
+                                                      THCudaTensor_stride(state, output, 4),
+                                                      THCudaTensor_stride(state, output, 1),
+                                                      THCudaTensor_stride(state, output, 2), 
                                                       THCudaTensor_stride(state, output, 3),
-                                                      THCudaTensor_stride(state, output, 1), 
-                                                      THCudaTensor_stride(state, output, 2),
-                                                      THCudaTensor_size(state, inputImages, 3),
-                                                      THCudaTensor_size(state, inputImages, 1), 
-                                                      THCudaTensor_size(state, inputImages, 2),
-                                                      THCudaTensor_size(state, output, 2));
+                                                      THCudaTensor_size(state, inputImages, 4),
+                                                      THCudaTensor_size(state, inputImages, 1),
+                                                      THCudaTensor_size(state, inputImages, 2), 
+                                                      THCudaTensor_size(state, inputImages, 3));
 
 
   // check for errors
