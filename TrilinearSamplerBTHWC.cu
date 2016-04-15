@@ -401,16 +401,16 @@ static int cunn_TrilinearSamplerBTHWC_updateGradInput(lua_State *L)
 
 static int cunn_TrilinearSamplerBTHWC_updateGradInputOnlyGrid(lua_State *L)
 {
-  THCState *state = getCutorchState(L);
-  THCudaTensor *inputImages = (THCudaTensor *)luaT_checkudata(L, 2, "torch.CudaTensor");
-  THCudaTensor *grids = (THCudaTensor *)luaT_checkudata(L, 3, "torch.CudaTensor");
-  THCudaTensor *gradGrids = (THCudaTensor *)luaT_checkudata(L, 5, "torch.CudaTensor");
-  THCudaTensor *gradOutput = (THCudaTensor *)luaT_checkudata(L, 6, "torch.CudaTensor");
+    THCState *state = getCutorchState(L);
+    THCudaTensor *inputImages = (THCudaTensor *)luaT_checkudata(L, 2, "torch.CudaTensor");
+    THCudaTensor *grids = (THCudaTensor *)luaT_checkudata(L, 3, "torch.CudaTensor");
+    THCudaTensor *gradGrids = (THCudaTensor *)luaT_checkudata(L, 5, "torch.CudaTensor");
+    THCudaTensor *gradOutput = (THCudaTensor *)luaT_checkudata(L, 6, "torch.CudaTensor");
 
-   dim3 blocks((gradOutput->size[2]+15)/16, gradOutput->size[1], gradOutput->size[0]);
-   dim3 threads(32,16);
+    dim3 blocks(output->size[3], output->size[2], output->size[0]); // Width X Height X BatchSize
+    dim3 threads(output->size[1]); // nTime - each thread will handle all input_channels together
 
-   backwardTrilinearSampling <true> <<< blocks, threads, 0, THCState_getCurrentStream(state) >>> (
+    backwardTrilinearSampling <true> <<< blocks, threads, 0, THCState_getCurrentStream(state) >>> (
                                                       THCudaTensor_data(state, inputImages), 
                                                       THCudaTensor_stride(state, inputImages, 0),
                                                       THCudaTensor_stride(state, inputImages, 4),
@@ -446,13 +446,13 @@ static int cunn_TrilinearSamplerBTHWC_updateGradInputOnlyGrid(lua_State *L)
                                                       THCudaTensor_size(state, inputImages, 2), 
                                                       THCudaTensor_size(state, inputImages, 3));
 
-  // check for errors
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("error in TrilinearSampler.updateGradInput: %s\n", cudaGetErrorString(err));
-    THError("aborting");
-  }
-  return 1;
+    // check for errors
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("error in TrilinearSampler.updateGradInput: %s\n", cudaGetErrorString(err));
+        THError("aborting");
+    }
+    return 1;
 }
 
 static const struct luaL_Reg cunn_TrilinearSamplerBTHWC__ [] = {
