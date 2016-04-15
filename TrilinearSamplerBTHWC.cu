@@ -52,7 +52,7 @@ __global__ void trilinearSamplingFromGrid(float* inputImages_data, int inputImag
    
    const int width = inputImages_width;
    const int height = inputImages_height;
-   cont int time = inputImages_time;
+   cosnt int frames = inputImages_time;
    
    float yf,xf;
 
@@ -92,14 +92,14 @@ __global__ void trilinearSamplingFromGrid(float* inputImages_data, int inputImag
    float in110=0;
    float in111=0;
 
-   bool IsIn000 = between(tInTopLeft, 0, time-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft, 0, width-1);
-   bool IsIn001 = between(tInTopLeft, 0, time-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft+1, 0, width-1);
-   bool IsIn010 = between(tInTopLeft, 0, time-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft, 0, width-1);
-   bool IsIn011 = between(tInTopLeft, 0, time-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft+1, 0, width-1);
-   bool IsIn100 = between(tInTopLeft+1, 0, time-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft, 0, width-1);
-   bool IsIn101 = between(tInTopLeft+1, 0, time-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft+1, 0, width-1);
-   bool IsIn110 = between(tInTopLeft+1, 0, time-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft, 0, width-1);
-   bool IsIn111 = between(tInTopLeft+1, 0, time-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft+1, 0, width-1);
+   bool IsIn000 = between(tInTopLeft, 0, frames-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft, 0, width-1);
+   bool IsIn001 = between(tInTopLeft, 0, frames-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft+1, 0, width-1);
+   bool IsIn010 = between(tInTopLeft, 0, frames-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft, 0, width-1);
+   bool IsIn011 = between(tInTopLeft, 0, frames-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft+1, 0, width-1);
+   bool IsIn100 = between(tInTopLeft+1, 0, frames-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft, 0, width-1);
+   bool IsIn101 = between(tInTopLeft+1, 0, frames-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft+1, 0, width-1);
+   bool IsIn110 = between(tInTopLeft+1, 0, frames-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft, 0, width-1);
+   bool IsIn111 = between(tInTopLeft+1, 0, frames-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft+1, 0, width-1);
 
    // interpolation happens here
    for(int t=0; t<inputImages_channels; t++)
@@ -192,7 +192,7 @@ template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputIm
 
     const int width = inputImages_width;
     const int height = inputImages_height;
-    cont int time = inputImages_time;
+    const int frames = inputImages_time;
 
     float yf,xf,tf;
 
@@ -242,14 +242,14 @@ template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputIm
     float dotProduct110 = 0;
     float dotProduct111 = 0;
 
-    bool IsIn000 = between(tInTopLeft, 0, time-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft, 0, width-1);
-    bool IsIn001 = between(tInTopLeft, 0, time-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft+1, 0, width-1);
-    bool IsIn010 = between(tInTopLeft, 0, time-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft, 0, width-1);
-    bool IsIn011 = between(tInTopLeft, 0, time-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft+1, 0, width-1);
-    bool IsIn100 = between(tInTopLeft+1, 0, time-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft, 0, width-1);
-    bool IsIn101 = between(tInTopLeft+1, 0, time-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft+1, 0, width-1);
-    bool IsIn110 = between(tInTopLeft+1, 0, time-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft, 0, width-1);
-    bool IsIn111 = between(tInTopLeft+1, 0, time-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft+1, 0, width-1);
+    bool IsIn000 = between(tInTopLeft, 0, frames-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft, 0, width-1);
+    bool IsIn001 = between(tInTopLeft, 0, frames-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft+1, 0, width-1);
+    bool IsIn010 = between(tInTopLeft, 0, frames-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft, 0, width-1);
+    bool IsIn011 = between(tInTopLeft, 0, frames-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft+1, 0, width-1);
+    bool IsIn100 = between(tInTopLeft+1, 0, frames-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft, 0, width-1);
+    bool IsIn101 = between(tInTopLeft+1, 0, frames-1) && between(yInTopLeft, 0, height-1) && between(xInTopLeft+1, 0, width-1);
+    bool IsIn110 = between(tInTopLeft+1, 0, frames-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft, 0, width-1);
+    bool IsIn111 = between(tInTopLeft+1, 0, frames-1) && between(yInTopLeft+1, 0, height-1) && between(xInTopLeft+1, 0, width-1);
 
     /*
          In that loop we accumulate
