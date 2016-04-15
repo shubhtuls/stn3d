@@ -193,7 +193,7 @@ static int nn_(TrilinearSamplerBTHWC_updateGradInput)(lua_State *L)
 
   for(b=0; b < batchsize; b++)
   {
-    for(tOut=-; tOut < gradOutput_time; tOut++)
+    for(tOut=0; tOut < gradOutput_time; tOut++)
     {
         for(yOut=0; yOut < gradOutput_height; yOut++)
         {
@@ -259,7 +259,6 @@ static int nn_(TrilinearSamplerBTHWC_updateGradInput)(lua_State *L)
             bool IsIn101 = between(tInTopLeft+1, 0, output_time-1) && between(yInTopLeft, 0, output_height-1) && between(xInTopLeft+1, 0, output_width-1);
             bool IsIn110 = between(tInTopLeft+1, 0, output_time-1) && between(yInTopLeft+1, 0, output_height-1) && between(xInTopLeft, 0, output_width-1);
             bool IsIn111 = between(tInTopLeft+1, 0, output_time-1) && between(yInTopLeft+1, 0, output_height-1) && between(xInTopLeft+1, 0, output_width-1);
-
 
             real v=0;
             real in000=0;
