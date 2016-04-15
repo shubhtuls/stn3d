@@ -44,6 +44,12 @@ static int nn_(TrilinearSamplerBTHWC_updateOutput)(lua_State *L)
   output_data = THTensor_(data)(output);
   grids_data = THTensor_(data)(grids);
 
+  //printf("%d %d %d %d\n",batchsize, inputImages_time,inputImages_height,inputImages_width);
+  //printf("%d %d %d %d\n",batchsize, output_time,output_height,output_width);
+  //printf("%d %d %d %d\n",output_strideBatch, output_strideTime,output_strideHeight,output_strideWidth);
+  //printf("%d %d %d %d\n",grids_strideBatch, grids_strideTime,grids_strideHeight,grids_strideWidth);
+  
+
   int b, yOut, xOut, tOut;
 
   for(b=0; b < batchsize; b++)
@@ -63,17 +69,24 @@ static int nn_(TrilinearSamplerBTHWC_updateOutput)(lua_State *L)
           int yInTopLeft, xInTopLeft, tInTopLeft;
           real tWeightTopLeft, yWeightTopLeft, xWeightTopLeft;
  
-          real xcoord = (xf + 1) * (inputImages_width - 1) / 2;
+          real xcoord = (xf + 1) * (inputImages_width - 1) / 2.0;
           xInTopLeft = floor(xcoord);
           xWeightTopLeft = 1 - (xcoord - xInTopLeft);
 
-          real ycoord = (yf + 1) * (inputImages_height - 1) / 2;
+          real ycoord = (yf + 1) * (inputImages_height - 1) / 2.0;
           yInTopLeft = floor(ycoord);
           yWeightTopLeft = 1 - (ycoord - yInTopLeft);
 
-          real tcoord = (tf + 1) * (inputImages_time - 1) / 2;
+          real tcoord = (tf + 1) * (inputImages_time - 1) / 2.0;
           tInTopLeft = floor(tcoord);
           tWeightTopLeft = 1 - (tcoord - tInTopLeft);
+          //printf("%f %f %f\n",tf,yf,xf);
+          //printf("%f %f %f\n",tcoord,ycoord,xcoord);
+
+          //printf("%d %d %d\n",tInTopLeft,yInTopLeft,xInTopLeft);
+          //printf("%f %f %f\n",tWeightTopLeft,yWeightTopLeft,xWeightTopLeft);
+          
+
 
           const int outAddress = output_strideBatch * b + output_strideTime * tOut + output_strideHeight * yOut + output_strideWidth * xOut;
           const int in000Address = inputImages_strideBatch * b + inputImages_strideTime * tInTopLeft + inputImages_strideHeight * yInTopLeft + inputImages_strideWidth * xInTopLeft;
@@ -97,15 +110,17 @@ static int nn_(TrilinearSamplerBTHWC_updateOutput)(lua_State *L)
           real in111=0;
 
           // we are careful with the boundaries
-          bool IsIn000 = between(tInTopLeft, 0, output_time-1) && between(yInTopLeft, 0, output_height-1) && between(xInTopLeft, 0, output_width-1);
-          bool IsIn001 = between(tInTopLeft, 0, output_time-1) && between(yInTopLeft, 0, output_height-1) && between(xInTopLeft+1, 0, output_width-1);
-          bool IsIn010 = between(tInTopLeft, 0, output_time-1) && between(yInTopLeft+1, 0, output_height-1) && between(xInTopLeft, 0, output_width-1);
-          bool IsIn011 = between(tInTopLeft, 0, output_time-1) && between(yInTopLeft+1, 0, output_height-1) && between(xInTopLeft+1, 0, output_width-1);
-          bool IsIn100 = between(tInTopLeft+1, 0, output_time-1) && between(yInTopLeft, 0, output_height-1) && between(xInTopLeft, 0, output_width-1);
-          bool IsIn101 = between(tInTopLeft+1, 0, output_time-1) && between(yInTopLeft, 0, output_height-1) && between(xInTopLeft+1, 0, output_width-1);
-          bool IsIn110 = between(tInTopLeft+1, 0, output_time-1) && between(yInTopLeft+1, 0, output_height-1) && between(xInTopLeft, 0, output_width-1);
-          bool IsIn111 = between(tInTopLeft+1, 0, output_time-1) && between(yInTopLeft+1, 0, output_height-1) && between(xInTopLeft+1, 0, output_width-1);
-
+          bool IsIn000 = (tInTopLeft>=0) && (tInTopLeft <= inputImages_time-1) && (yInTopLeft>= 0) && (yInTopLeft <= inputImages_height-1) && (xInTopLeft >= 0) && (xInTopLeft <= inputImages_width-1);
+          bool IsIn001 = (tInTopLeft>=0) && (tInTopLeft <= inputImages_time-1) && (yInTopLeft>= 0) && (yInTopLeft <= inputImages_height-1) && (xInTopLeft+1 >= 0) && (xInTopLeft+1 <= inputImages_width-1);
+          bool IsIn010 = (tInTopLeft>=0) && (tInTopLeft <= inputImages_time-1) && (yInTopLeft+1 >= 0) && (yInTopLeft+1 <= inputImages_height-1) && (xInTopLeft >= 0) && (xInTopLeft <= inputImages_width-1);
+          bool IsIn011 = (tInTopLeft>=0) && (tInTopLeft <= inputImages_time-1) && (yInTopLeft+1 >= 0) && (yInTopLeft+1 <= inputImages_height-1) && (xInTopLeft+1 >= 0) && (xInTopLeft+1 <= inputImages_width-1);
+          bool IsIn100 = (tInTopLeft+1>=0) && (tInTopLeft+1 <= inputImages_time-1) && (yInTopLeft>= 0) && (yInTopLeft <= inputImages_height-1) && (xInTopLeft >= 0) && (xInTopLeft <= inputImages_width-1);
+          bool IsIn101 = (tInTopLeft+1>=0) && (tInTopLeft+1 <= inputImages_time-1) && (yInTopLeft>= 0) && (yInTopLeft <= inputImages_height-1) && (xInTopLeft+1 >= 0) && (xInTopLeft+1 <= inputImages_width-1);
+          bool IsIn110 = (tInTopLeft+1>=0) && (tInTopLeft+1 <= inputImages_time-1) && (yInTopLeft+1 >= 0) && (yInTopLeft+1 <= inputImages_height-1) && (xInTopLeft >= 0) && (xInTopLeft <= inputImages_width-1);
+          bool IsIn111 = (tInTopLeft+1>=0) && (tInTopLeft+1 <= inputImages_time-1) && (yInTopLeft+1 >= 0) && (yInTopLeft+1 <= inputImages_height-1) && (xInTopLeft+1 >= 0) && (xInTopLeft+1 <= inputImages_width-1);
+          //printf("%d %d %d %d %d %d %d %d\n",IsIn000,IsIn001,IsIn010,IsIn011,IsIn100,IsIn101,IsIn110,IsIn111);
+          //printf("%d %d %d\n",(xInTopLeft+1 <= output_width-1),xInTopLeft,output_width);
+          
           int t;
           // interpolation happens here
           for(t=0; t<inputImages_channels; t++)
@@ -232,7 +247,7 @@ static int nn_(TrilinearSamplerBTHWC_updateGradInput)(lua_State *L)
             const int in110Address = in010Address + inputImages_strideTime;
             const int in111Address = in011Address + inputImages_strideTime;
 
-            const int gradInputImages000Address = gradInputImages_strideBatch * b + gradInputImages_strideTime * tOut + gradInputImages_strideHeight * yInTopLeft + gradInputImages_strideWidth * xInTopLeft;
+            const int gradInputImages000Address = gradInputImages_strideBatch * b + gradInputImages_strideTime * tInTopLeft + gradInputImages_strideHeight * yInTopLeft + gradInputImages_strideWidth * xInTopLeft;
             const int gradInputImages001Address = gradInputImages000Address + gradInputImages_strideWidth;
             const int gradInputImages010Address = gradInputImages000Address + gradInputImages_strideHeight;
             const int gradInputImages011Address = gradInputImages010Address + gradInputImages_strideWidth;
@@ -251,14 +266,14 @@ static int nn_(TrilinearSamplerBTHWC_updateGradInput)(lua_State *L)
             real dotProduct110 = 0;
             real dotProduct111 = 0;
 
-            bool IsIn000 = between(tInTopLeft, 0, output_time-1) && between(yInTopLeft, 0, output_height-1) && between(xInTopLeft, 0, output_width-1);
-            bool IsIn001 = between(tInTopLeft, 0, output_time-1) && between(yInTopLeft, 0, output_height-1) && between(xInTopLeft+1, 0, output_width-1);
-            bool IsIn010 = between(tInTopLeft, 0, output_time-1) && between(yInTopLeft+1, 0, output_height-1) && between(xInTopLeft, 0, output_width-1);
-            bool IsIn011 = between(tInTopLeft, 0, output_time-1) && between(yInTopLeft+1, 0, output_height-1) && between(xInTopLeft+1, 0, output_width-1);
-            bool IsIn100 = between(tInTopLeft+1, 0, output_time-1) && between(yInTopLeft, 0, output_height-1) && between(xInTopLeft, 0, output_width-1);
-            bool IsIn101 = between(tInTopLeft+1, 0, output_time-1) && between(yInTopLeft, 0, output_height-1) && between(xInTopLeft+1, 0, output_width-1);
-            bool IsIn110 = between(tInTopLeft+1, 0, output_time-1) && between(yInTopLeft+1, 0, output_height-1) && between(xInTopLeft, 0, output_width-1);
-            bool IsIn111 = between(tInTopLeft+1, 0, output_time-1) && between(yInTopLeft+1, 0, output_height-1) && between(xInTopLeft+1, 0, output_width-1);
+            bool IsIn000 = (tInTopLeft>=0) && (tInTopLeft <= inputImages_time-1) && (yInTopLeft>= 0) && (yInTopLeft <= inputImages_height-1) && (xInTopLeft >= 0) && (xInTopLeft <= inputImages_width-1);
+          bool IsIn001 = (tInTopLeft>=0) && (tInTopLeft <= inputImages_time-1) && (yInTopLeft>= 0) && (yInTopLeft <= inputImages_height-1) && (xInTopLeft+1 >= 0) && (xInTopLeft+1 <= inputImages_width-1);
+          bool IsIn010 = (tInTopLeft>=0) && (tInTopLeft <= inputImages_time-1) && (yInTopLeft+1 >= 0) && (yInTopLeft+1 <= inputImages_height-1) && (xInTopLeft >= 0) && (xInTopLeft <= inputImages_width-1);
+          bool IsIn011 = (tInTopLeft>=0) && (tInTopLeft <= inputImages_time-1) && (yInTopLeft+1 >= 0) && (yInTopLeft+1 <= inputImages_height-1) && (xInTopLeft+1 >= 0) && (xInTopLeft+1 <= inputImages_width-1);
+          bool IsIn100 = (tInTopLeft+1>=0) && (tInTopLeft+1 <= inputImages_time-1) && (yInTopLeft>= 0) && (yInTopLeft <= inputImages_height-1) && (xInTopLeft >= 0) && (xInTopLeft <= inputImages_width-1);
+          bool IsIn101 = (tInTopLeft+1>=0) && (tInTopLeft+1 <= inputImages_time-1) && (yInTopLeft>= 0) && (yInTopLeft <= inputImages_height-1) && (xInTopLeft+1 >= 0) && (xInTopLeft+1 <= inputImages_width-1);
+          bool IsIn110 = (tInTopLeft+1>=0) && (tInTopLeft+1 <= inputImages_time-1) && (yInTopLeft+1 >= 0) && (yInTopLeft+1 <= inputImages_height-1) && (xInTopLeft >= 0) && (xInTopLeft <= inputImages_width-1);
+          bool IsIn111 = (tInTopLeft+1>=0) && (tInTopLeft+1 <= inputImages_time-1) && (yInTopLeft+1 >= 0) && (yInTopLeft+1 <= inputImages_height-1) && (xInTopLeft+1 >= 0) && (xInTopLeft+1 <= inputImages_width-1);
 
             real v=0;
             real in000=0;
