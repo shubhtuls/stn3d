@@ -1,5 +1,5 @@
 #include "utils.h"
-// Bilinear sampling is done in BTHWC (coalescing is not obvious in BCTHW)
+// Trilinear sampling is done in BTHWC (coalescing is not obvious in BCTHW)
 // we assume BTHWC format in inputImages
 // we assume BTHW(ZYX) format on grids
 
@@ -20,20 +20,6 @@ __device__ bool between(int value, int lowerBound, int upperBound)
 {
    return (value >= lowerBound && value <= upperBound);
 }
-
-__device__ void sumReduceShMem(volatile float s[])
-{
-   /* obviously only works for 32 elements */
-   /* sums up a shared memory array of 32 elements, stores it in s[0] */
-   /* whole warp can then read first element (broadcasting) */
-   if(threadIdx.x<16) { s[threadIdx.x] = s[threadIdx.x] + s[threadIdx.x+16]; }
-   if(threadIdx.x<8) { s[threadIdx.x] = s[threadIdx.x] + s[threadIdx.x+8]; }
-   if(threadIdx.x<4) { s[threadIdx.x] = s[threadIdx.x] + s[threadIdx.x+4]; }
-   if(threadIdx.x<2) { s[threadIdx.x] = s[threadIdx.x] + s[threadIdx.x+2]; }
-   if(threadIdx.x<1) { s[threadIdx.x] = s[threadIdx.x] + s[threadIdx.x+1]; }
-}
-
-
 
 __global__ void trilinearSamplingFromGrid(float* inputImages_data, int inputImages_strideBatch, int inputImages_strideChannels, int inputImages_strideTime, int inputImages_strideHeight, int inputImages_strideWidth,
                                          float* grids_data, int grids_strideBatch, int grids_strideZYX, int grids_strideTime, int grids_strideHeight, int grids_strideWidth,
@@ -136,10 +122,10 @@ static int cunn_TrilinearSamplerBTHWC_updateOutput(lua_State *L)
 
 
    dim3 blocks(output->size[3], output->size[2], output->size[0]); // Width X Height X BatchSize
-   dim3 threads(output->size[4],output->size[1]); // nChannels X nTime
+   dim3 threads(output->size[1]); // nTime - each thread will handle all input_channels together
 
-   /* assume BHWD */
-   bilinearSamplingFromGrid <<< blocks, threads, 0, THCState_getCurrentStream(state) >>> (THCudaTensor_data(state, inputImages), 
+   /* assume BTHWC */
+   trilinearSamplingFromGrid <<< blocks, threads, 0, THCState_getCurrentStream(state) >>> (THCudaTensor_data(state, inputImages), 
                                                       THCudaTensor_stride(state, inputImages, 0), 
                                                       THCudaTensor_stride(state, inputImages, 4), 
                                                       THCudaTensor_stride(state, inputImages, 1), 
@@ -166,12 +152,11 @@ static int cunn_TrilinearSamplerBTHWC_updateOutput(lua_State *L)
   // check for errors
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
-    printf("error in BilinearSampler.updateOutput: %s\n", cudaGetErrorString(err));
+    printf("error in TrilinearSampler.updateOutput: %s\n", cudaGetErrorString(err));
     THError("aborting");
   }
   return 1;
 }
-
 
 template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputImages_data, int inputImages_strideBatch, int inputImages_strideChannels, int inputImages_strideTime, int inputImages_strideHeight, int inputImages_strideWidth,
                                          float* gradInputImages_data, int gradInputImages_strideBatch, int gradInputImages_strideChannels, int gradInputImages_strideTime, int gradInputImages_strideHeight, int gradInputImages_strideWidth,
@@ -180,10 +165,10 @@ template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputIm
                                          float* gradOutput_data, int gradOutput_strideBatch, int gradOutput_strideChannels, int gradOutput_strideTime, int gradOutput_strideHeight, int gradOutput_strideWidth,
                                          int inputImages_channels, int inputImages_time, int inputImages_height, int inputImages_width, int gradOutput_width)
 {
-   // each (32,16) block 16 output pixels (for coalescing the grid read)
-   // x,y = coordinates
-   // z = batch index
-   // threads : used for features
+    // each (32,16) block 16 output pixels (for coalescing the grid read)
+    // x,y = coordinates
+    // z = batch index
+    // threads : used for features
       
     const int xOut = blockIdx.x;
     const int yOut = blockIdx.y;
@@ -255,7 +240,7 @@ template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputIm
          In that loop we accumulate
          - gradients into the gradInputImages array with atomic adds
          - we compute the dot product that we need for the grid gradient
-      */
+    */
 
     for(int t=threadIdx.x; t<inputImages_channels; t++)
     {
@@ -317,104 +302,104 @@ template<bool onlyGrid> __global__ void backwardTrilinearSampling(float* inputIm
             if(!onlyGrid) atomicAdd(&gradInputImages_data[gradInputImages111Address + t], (1-tWeightTopLeft) * (1-yWeightTopLeft) * (1-xWeightTopLeft) * gradOutValue);
         }
     }
-
-    /*
-         Here we reduce the dot product and compute the grid gradient before writing it.
-    */
-
-    /* could do shuffles and use no shmem at all but cuda arch is 2.0 */
-    __shared__ volatile float __shmem[16][32];
-    __shmem[threadIdx.y][threadIdx.x] = topLeftDotProduct;
-    sumReduceShMem(__shmem[threadIdx.y]);
-    topLeftDotProduct = __shmem[threadIdx.y][0];
-
-    __shmem[threadIdx.y][threadIdx.x] = topRightDotProduct;
-    sumReduceShMem(__shmem[threadIdx.y]);
-    topRightDotProduct = __shmem[threadIdx.y][0];
-
-    __shmem[threadIdx.y][threadIdx.x] = bottomLeftDotProduct;
-    sumReduceShMem(__shmem[threadIdx.y]);
-    bottomLeftDotProduct = __shmem[threadIdx.y][0];
-
-    __shmem[threadIdx.y][threadIdx.x] = bottomRightDotProduct;
-    sumReduceShMem(__shmem[threadIdx.y]);
-    bottomRightDotProduct = __shmem[threadIdx.y][0];
-
-    yf = - xWeightTopLeft * topLeftDotProduct + xWeightTopLeft * bottomLeftDotProduct - (1-xWeightTopLeft) * topRightDotProduct + (1-xWeightTopLeft) * bottomRightDotProduct;
-    xf = - yWeightTopLeft * topLeftDotProduct + yWeightTopLeft * topRightDotProduct - (1-yWeightTopLeft) * bottomLeftDotProduct + (1-yWeightTopLeft) * bottomRightDotProduct;
-
-    if(threadIdx.x==0)
-    {
-        gridData[threadIdx.y*2] = yf * (inputImages_height-1) / 2;
-        gridData[threadIdx.y*2+1] = xf * (inputImages_width-1) / 2;
+    
+    xf = - tWeightTopLeft * yWeightTopLeft * dotProduct000
+        + tWeightTopLeft * yWeightTopLeft * dotProduct001
+        - tWeightTopLeft * (1 - yWeightTopLeft) * dotProduct010
+        + tWeightTopLeft * (1 - yWeightTopLeft) * dotProduct011
+        - (1-tWeightTopLeft) * yWeightTopLeft * dotProduct100
+        + (1-tWeightTopLeft) * yWeightTopLeft * dotProduct101
+        - (1-tWeightTopLeft) * (1 - yWeightTopLeft) * dotProduct110
+        + (1-tWeightTopLeft) * (1 - yWeightTopLeft) * dotProduct111;
+    
+    yf = - tWeightTopLeft * xWeightTopLeft * dotProduct000
+        - tWeightTopLeft * (1 - xWeightTopLeft) * dotProduct001
+        + tWeightTopLeft * xWeightTopLeft * dotProduct010
+        + tWeightTopLeft * (1 - xWeightTopLeft) * dotProduct011
+        - (1-tWeightTopLeft) * xWeightTopLeft * dotProduct100
+        - (1-tWeightTopLeft) * (1 - xWeightTopLeft) * dotProduct101
+        + (1-tWeightTopLeft) * xWeightTopLeft * dotProduct110
+        + (1-tWeightTopLeft) * (1 - xWeightTopLeft) * dotProduct111;
+    
+    zf = - yWeightTopLeft * xWeightTopLeft * dotProduct000
+        - yWeightTopLeft * (1 - xWeightTopLeft) * dotProduct001
+        - (1 - yWeightTopLeft) * xWeightTopLeft * dotProduct010
+        - (1 - yWeightTopLeft) * (1 - xWeightTopLeft) * dotProduct011
+        + yWeightTopLeft * xWeightTopLeft * dotProduct100
+        + yWeightTopLeft * (1 - xWeightTopLeft) * dotProduct101
+        + (1 - yWeightTopLeft) * xWeightTopLeft * dotProduct110
+        + (1 - yWeightTopLeft) * (1 - xWeightTopLeft) * dotProduct111;
+    
+    float gridGrads[3];
+    gridGrads[0] = zf * (inputImages_time-1) / 2;
+    gridGrads[1] = yf * (inputImages_height-1) / 2;
+    gridGrads[2] = xf * (inputImages_width-1) / 2;
+    
+    for(int dim=0;dim<3;dim++) {gradGrids_data[b*gradGrids_strideBatch + tOut*gradGrids_strideTime + yOut*gradGrids_strideHeight + xOut*gradGrids_strideWidth + d] = gridGrads[d];
     }
-    // must put a big if condition in order not to hang at __syncthreads()...
-    __syncthreads();
-
-   if(threadIdx.y==0 && withinGridBounds)      
-       gradGrids_data[b*gradGrids_strideBatch + yOut*gradGrids_strideHeight + xOut*gradGrids_strideWidth + threadIdx.x] = gridData[threadIdx.x];   
 }
 
-
-
-
-
-static int cunn_BilinearSamplerBHWD_updateGradInput(lua_State *L)
+static int cunn_TrilinearSamplerBTHWC_updateGradInput(lua_State *L)
 {
-  THCState *state = getCutorchState(L);
-  THCudaTensor *inputImages = (THCudaTensor *)luaT_checkudata(L, 2, "torch.CudaTensor");
-  THCudaTensor *grids = (THCudaTensor *)luaT_checkudata(L, 3, "torch.CudaTensor");
-  THCudaTensor *gradInputImages = (THCudaTensor *)luaT_checkudata(L, 4, "torch.CudaTensor");
-  THCudaTensor *gradGrids = (THCudaTensor *)luaT_checkudata(L, 5, "torch.CudaTensor");
-  THCudaTensor *gradOutput = (THCudaTensor *)luaT_checkudata(L, 6, "torch.CudaTensor");
+    THCState *state = getCutorchState(L);
+    THCudaTensor *inputImages = (THCudaTensor *)luaT_checkudata(L, 2, "torch.CudaTensor");
+    THCudaTensor *grids = (THCudaTensor *)luaT_checkudata(L, 3, "torch.CudaTensor");
+    THCudaTensor *gradInputImages = (THCudaTensor *)luaT_checkudata(L, 4, "torch.CudaTensor");
+    THCudaTensor *gradGrids = (THCudaTensor *)luaT_checkudata(L, 5, "torch.CudaTensor");
+    THCudaTensor *gradOutput = (THCudaTensor *)luaT_checkudata(L, 6, "torch.CudaTensor");
 
-   dim3 blocks((gradOutput->size[2]+15)/16, gradOutput->size[1], gradOutput->size[0]);
-   dim3 threads(32,16);
+    dim3 blocks(output->size[3], output->size[2], output->size[0]); // Width X Height X BatchSize
+    dim3 threads(output->size[1]); // nTime - each thread will handle all input_channels together
 
-   backwardBilinearSampling <false> <<< blocks, threads, 0, THCState_getCurrentStream(state) >>> (
+    backwardTrilinearSampling <false> <<< blocks, threads, 0, THCState_getCurrentStream(state) >>> (
                                                       THCudaTensor_data(state, inputImages), 
                                                       THCudaTensor_stride(state, inputImages, 0),
-                                                      THCudaTensor_stride(state, inputImages, 3),
+                                                      THCudaTensor_stride(state, inputImages, 4),
                                                       THCudaTensor_stride(state, inputImages, 1),
                                                       THCudaTensor_stride(state, inputImages, 2),
+                                                      THCudaTensor_stride(state, inputImages, 3),
                                                       THCudaTensor_data(state, gradInputImages), 
                                                       THCudaTensor_stride(state, gradInputImages, 0),
-                                                      THCudaTensor_stride(state, gradInputImages, 3),
+                                                      THCudaTensor_stride(state, gradInputImages, 4),
                                                       THCudaTensor_stride(state, gradInputImages, 1),
                                                       THCudaTensor_stride(state, gradInputImages, 2),
+                                                      THCudaTensor_stride(state, gradInputImages, 3),
                                                       THCudaTensor_data(state, grids), 
                                                       THCudaTensor_stride(state, grids, 0),
-                                                      THCudaTensor_stride(state, grids, 3),
+                                                      THCudaTensor_stride(state, grids, 4),
                                                       THCudaTensor_stride(state, grids, 1),
                                                       THCudaTensor_stride(state, grids, 2),
+                                                      THCudaTensor_stride(state, grids, 3),
                                                       THCudaTensor_data(state, gradGrids), 
                                                       THCudaTensor_stride(state, gradGrids, 0),
-                                                      THCudaTensor_stride(state, gradGrids, 3),
+                                                      THCudaTensor_stride(state, gradGrids, 4),
                                                       THCudaTensor_stride(state, gradGrids, 1),
                                                       THCudaTensor_stride(state, gradGrids, 2),
+                                                      THCudaTensor_stride(state, gradGrids, 3),
                                                       THCudaTensor_data(state, gradOutput), 
                                                       THCudaTensor_stride(state, gradOutput, 0),
-                                                      THCudaTensor_stride(state, gradOutput, 3),
+                                                      THCudaTensor_stride(state, gradOutput, 4),
                                                       THCudaTensor_stride(state, gradOutput, 1),
                                                       THCudaTensor_stride(state, gradOutput, 2),
-                                                      THCudaTensor_size(state, inputImages, 3),
-                                                      THCudaTensor_size(state, inputImages, 1), 
-                                                      THCudaTensor_size(state, inputImages, 2),
-                                                      THCudaTensor_size(state, gradOutput, 2));
+                                                      THCudaTensor_stride(state, gradOutput, 3),
+                                                      THCudaTensor_size(state, inputImages, 4),
+                                                      THCudaTensor_size(state, inputImages, 1),
+                                                      THCudaTensor_size(state, inputImages, 2), 
+                                                      THCudaTensor_size(state, inputImages, 3));
 
 
 
   // check for errors
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
-    printf("error in BilinearSampler.updateGradInput: %s\n", cudaGetErrorString(err));
+    printf("error in TrilinearSampler.updateGradInput: %s\n", cudaGetErrorString(err));
     THError("aborting");
   }
   return 1;
 }
 
 
-static int cunn_BilinearSamplerBHWD_updateGradInputOnlyGrid(lua_State *L)
+static int cunn_TrilinearSamplerBTHWC_updateGradInputOnlyGrid(lua_State *L)
 {
   THCState *state = getCutorchState(L);
   THCudaTensor *inputImages = (THCudaTensor *)luaT_checkudata(L, 2, "torch.CudaTensor");
@@ -425,60 +410,61 @@ static int cunn_BilinearSamplerBHWD_updateGradInputOnlyGrid(lua_State *L)
    dim3 blocks((gradOutput->size[2]+15)/16, gradOutput->size[1], gradOutput->size[0]);
    dim3 threads(32,16);
 
-   backwardBilinearSampling <true> <<< blocks, threads, 0, THCState_getCurrentStream(state) >>> (
+   backwardTrilinearSampling <true> <<< blocks, threads, 0, THCState_getCurrentStream(state) >>> (
                                                       THCudaTensor_data(state, inputImages), 
                                                       THCudaTensor_stride(state, inputImages, 0),
-                                                      THCudaTensor_stride(state, inputImages, 3),
+                                                      THCudaTensor_stride(state, inputImages, 4),
                                                       THCudaTensor_stride(state, inputImages, 1),
                                                       THCudaTensor_stride(state, inputImages, 2),
+                                                      THCudaTensor_stride(state, inputImages, 3),
                                                       0, 
                                                       0,
                                                       0,
                                                       0,
                                                       0,
+                                                      0,
                                                       THCudaTensor_data(state, grids), 
                                                       THCudaTensor_stride(state, grids, 0),
-                                                      THCudaTensor_stride(state, grids, 3),
+                                                      THCudaTensor_stride(state, grids, 4),
                                                       THCudaTensor_stride(state, grids, 1),
                                                       THCudaTensor_stride(state, grids, 2),
+                                                      THCudaTensor_stride(state, grids, 3),
                                                       THCudaTensor_data(state, gradGrids), 
                                                       THCudaTensor_stride(state, gradGrids, 0),
-                                                      THCudaTensor_stride(state, gradGrids, 3),
+                                                      THCudaTensor_stride(state, gradGrids, 4),
                                                       THCudaTensor_stride(state, gradGrids, 1),
                                                       THCudaTensor_stride(state, gradGrids, 2),
+                                                      THCudaTensor_stride(state, gradGrids, 3),
                                                       THCudaTensor_data(state, gradOutput), 
                                                       THCudaTensor_stride(state, gradOutput, 0),
-                                                      THCudaTensor_stride(state, gradOutput, 3),
+                                                      THCudaTensor_stride(state, gradOutput, 4),
                                                       THCudaTensor_stride(state, gradOutput, 1),
                                                       THCudaTensor_stride(state, gradOutput, 2),
-                                                      THCudaTensor_size(state, inputImages, 3),
-                                                      THCudaTensor_size(state, inputImages, 1), 
-                                                      THCudaTensor_size(state, inputImages, 2),
-                                                      THCudaTensor_size(state, gradOutput, 2));
-
-
+                                                      THCudaTensor_stride(state, gradOutput, 3),
+                                                      THCudaTensor_size(state, inputImages, 4),
+                                                      THCudaTensor_size(state, inputImages, 1),
+                                                      THCudaTensor_size(state, inputImages, 2), 
+                                                      THCudaTensor_size(state, inputImages, 3));
 
   // check for errors
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
-    printf("error in BilinearSampler.updateGradInput: %s\n", cudaGetErrorString(err));
+    printf("error in TrilinearSampler.updateGradInput: %s\n", cudaGetErrorString(err));
     THError("aborting");
   }
   return 1;
 }
 
-
-
-static const struct luaL_Reg cunn_BilinearSamplerBHWD__ [] = {
-  {"BilinearSamplerBHWD_updateOutput", cunn_BilinearSamplerBHWD_updateOutput},
-  {"BilinearSamplerBHWD_updateGradInput", cunn_BilinearSamplerBHWD_updateGradInput},
-  {"BilinearSamplerBHWD_updateGradInputOnlyGrid", cunn_BilinearSamplerBHWD_updateGradInputOnlyGrid},
+static const struct luaL_Reg cunn_TrilinearSamplerBTHWC__ [] = {
+  {"TrilinearSamplerBTHWC_updateOutput", cunn_TrilinearSamplerBTHWC_updateOutput},
+  {"TrilinearSamplerBTHWC_updateGradInput", cunn_TrilinearSamplerBTHWC_updateGradInput},
+  {"TrilinearSamplerBTHWC_updateGradInputOnlyGrid", cunn_TrilinearSamplerBTHWC_updateGradInputOnlyGrid},
   {NULL, NULL}
 };
 
-static void cunn_BilinearSamplerBHWD_init(lua_State *L)
+static void cunn_TrilinearSamplerBTHWC_init(lua_State *L)
 {
   luaT_pushmetatable(L, "torch.CudaTensor");
-  luaT_registeratname(L, cunn_BilinearSamplerBHWD__, "nn");
+  luaT_registeratname(L, cunn_TrilinearSamplerBTHWC__, "nn");
   lua_pop(L,1);
 }
