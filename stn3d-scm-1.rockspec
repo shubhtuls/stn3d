@@ -1,15 +1,15 @@
-package = "stnbhwd"
+package = "stn3d"
 version = "scm-1"
 
 source = {
-   url = "git://github.com/qassemoquab/stnbhwd.git",
+   url = "git://github.com/shubhtuls/stn3d.git",
 }
 
 description = {
-   summary = "Spatial Transformer Networks for Torch",
+   summary = "3D Spatial Transformer Networks for Torch",
    detailed = [[
    ]],
-   homepage = "https://github.com/qassemoquab/stnbhwd",
+   homepage = "https://github.com/shubhtuls/stn3d",
    license = "MIT"
 }
 
