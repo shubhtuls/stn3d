@@ -5,6 +5,7 @@ require 'libcustn3d'
 
 --include('AffineTransformMatrixGenerator.lua')
 --include('AffineGridGeneratorBHWD.lua')
+include('Affine3dGridGeneratorBTHWC.lua')
 --include('BilinearSamplerBHWD.lua')
 include('TrilinearSamplerBTHWC.lua')
 
