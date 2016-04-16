@@ -67,7 +67,7 @@ function TrilinearSamplerBTHWC:updateOutput(input)
 
    self:check(input)
 
-   self.output:resize(inputImages:size(1), grids:size(2), grids:size(3), grids:size(4), inputImages:size(4))
+   self.output:resize(inputImages:size(1), grids:size(2), grids:size(3), grids:size(4), inputImages:size(5))
 
    inputImages.nn.TrilinearSamplerBTHWC_updateOutput(self, inputImages, grids)
 
