@@ -3,7 +3,7 @@ require 'cutorch'
 require 'libstn3d'
 require 'libcustn3d'
 
---include('AffineTransformMatrixGenerator.lua')
+include('Affine3dTransformMatrixGenerator.lua')
 --include('AffineGridGeneratorBHWD.lua')
 include('Affine3dGridGeneratorBTHWC.lua')
 --include('BilinearSamplerBHWD.lua')
