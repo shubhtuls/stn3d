@@ -1,11 +1,17 @@
 # stnbhwd
 
+## Installation
+
+``` bash
+luarocks make stn3d-scm-1.rockspec
+```
+
 ## Main modules
 
 These are the basic modules (BHWD layout) needed to implement a Spatial Transformer Network (Jaderberg et al.) http://arxiv.org/abs/1506.02025
 
 ``` lua
-require 'stn'
+require 'stn3d'
 
 nn.AffineGridGeneratorBHWD(height, width)
 -- takes B x 2 x 3 affine transform matrices as input, 
