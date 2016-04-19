@@ -1,4 +1,4 @@
-# stnbhwd
+# stn3d
 
 ## Installation
 
