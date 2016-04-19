@@ -33,7 +33,9 @@ function ATMG:__init(useScale, useTranslation)
   if not self.fullMode then
     self.useScale = useScale
     self.useTranslation = useTranslation
+    
   end
+    
 end
 
 function ATMG:check(input)
