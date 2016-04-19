@@ -6,24 +6,24 @@
 luarocks make stn3d-scm-1.rockspec
 ```
 
-## Main modules
+## Modules
 
-These are the basic modules (BHWD layout) needed to implement a Spatial Transformer Network (Jaderberg et al.) http://arxiv.org/abs/1506.02025
+These are the basic modules (BTHWC layout) needed to implement a 3D variant of Spatial Transformer Network (Jaderberg et al.) http://arxiv.org/abs/1506.02025
 
 ``` lua
 require 'stn3d'
 
-nn.AffineGridGeneratorBHWD(height, width)
--- takes B x 2 x 3 affine transform matrices as input, 
+nn.Affine3dGridGeneratorBTHWC(depth, height, width)
+-- takes B x 3 x 4 affine transform matrices as input,
 -- outputs a height x width grid in normalized [-1,1] coordinates
--- output layout is B,H,W,2 where the first coordinate in the 4th dimension is y, and the second is x
+-- output layout is B,T,H,W,3 where the first coordinate in the 5th dimension is z, and the second is y, third in x
 
-nn.BilinearSamplerBHWD()
--- takes a table {inputImages, grids} as inputs
--- outputs the interpolated images according to the grids
--- inputImages is a batch of samples in BHWD layout
--- grids is a batch of grids (output of AffineGridGeneratorBHWD)
--- output is also BHWD
+nn.TrilinearSamplerBTHWC()
+-- takes a table {inputVolumes, grids} as inputs
+-- outputs the interpolated volumes according to the grids
+-- inputImages is a batch of samples in BTHWC layout
+-- grids is a batch of grids (output of Affine3dGridGeneratorBTWC)
+-- output is also BTHWC
 ```
 
 ## Advanced module
@@ -32,15 +32,15 @@ This module allows the user to put a constraint on the possible transformations.
 It should be placed between the localisation network and the grid generator.
 
 ``` lua
-require 'stn'
+require 'stn3d'
 
-nn.AffineTransformMatrixGenerator(useRotation, useScale, useTranslation)
+nn.Affine3dTransformMatrixGenerator(useScale, useTranslation)
 -- takes a B x nbParams tensor as inputs
 -- nbParams depends on the contrained transformation
 -- The parameters for the selected transformation(s) should be supplied in the
--- following order: rotationAngle, scaleFactor, translationX, translationY
--- If no transformation is specified, it generates a generic affine transformation (nbParams = 6)
--- outputs B x 2 x 3 affine transform matrices
+-- following order: scaleFactor, translationZ, translationY, translationX
+-- If no transformation is specified, it generates a generic affine transformation (nbParams = 12)
+-- outputs B x 3 x 4 affine transform matrices
 ```
 
 
