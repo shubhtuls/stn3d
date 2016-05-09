@@ -45,3 +45,6 @@ nn.Affine3dTransformMatrixGenerator(useScale, useTranslation)
 
 
 If this code is useful to your research, please cite this repository.
+
+## Acknowledgements
+This code is derived from the excellent [2D Spatial Transformer implementation](https://github.com/qassemoquab/stnbhwd) by [@qassemoquab](https://github.com/qassemoquab).
