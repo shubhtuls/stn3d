@@ -150,6 +150,7 @@ static int cunn_TrilinearSamplerBTHWC_updateOutput(lua_State *L)
 
 
   // check for errors
+  cudaDeviceSynchronize();
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
     printf("error in TrilinearSampler.updateOutput: %s\n", cudaGetErrorString(err));
@@ -389,6 +390,7 @@ static int cunn_TrilinearSamplerBTHWC_updateGradInput(lua_State *L)
 
 
   // check for errors
+  cudaDeviceSynchronize();
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
     printf("error in TrilinearSampler.updateGradInput: %s\n", cudaGetErrorString(err));
@@ -446,6 +448,7 @@ static int cunn_TrilinearSamplerBTHWC_updateGradInputOnlyGrid(lua_State *L)
                                                       THCudaTensor_size(state, inputImages, 3));
 
     // check for errors
+    cudaDeviceSynchronize();
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
         printf("error in TrilinearSampler.updateGradInput: %s\n", cudaGetErrorString(err));
